@@ -1,5 +1,3 @@
-version: "3.9"
-
 # =============================================================================
 # Monitoring Stack — Prometheus + Grafana
 # Standalone bootstrap. Monitors any service on the n8n-monitoring network.

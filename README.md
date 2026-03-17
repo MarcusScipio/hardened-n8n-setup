@@ -1,85 +1,98 @@
 # n8n Self-Hosted (Hardened)
 
-A production-ready, security-first n8n deployment using Docker Compose. Every container is locked down: read-only filesystems, dropped capabilities, non-root users, isolated networks, and resource limits across the board.
+A production-ready, security-first n8n deployment using Docker Compose. Every container is locked down: read-only filesystems, dropped capabilities, non-root users, isolated networks, resource limits. No shortcuts.
 
-This is not the "just run `docker-compose up` and pray" setup. This is the one you actually want in production.
+Deploys the same way on-prem or cloud. Same security posture either way.
 
-![Stack Overview](https://img.shields.io/badge/containers-10-blue)
-![TLS](https://img.shields.io/badge/TLS-Let's%20Encrypt-green)
+![Containers](https://img.shields.io/badge/containers-11-blue)
+![TLS](https://img.shields.io/badge/TLS-always%20on-green)
 ![Monitoring](https://img.shields.io/badge/monitoring-Prometheus%20%2B%20Grafana-orange)
+![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
 
 ## What's in the box
 
-| Service | Role |
-|---------|------|
-| **n8n** | Workflow engine, running in queue mode |
-| **PostgreSQL 16** | Persistent database backend |
-| **Redis 7** | Job queue for async execution |
-| **Traefik v3** | Reverse proxy, automatic HTTPS, rate limiting |
-| **pg-backup** | Automated daily database dumps with retention |
-| **Prometheus** | Metrics collection (separate bootstrap) |
-| **Grafana** | Dashboards and alerting (separate bootstrap) |
-| **Postgres Exporter** | PostgreSQL metrics for Prometheus |
-| **Redis Exporter** | Redis metrics for Prometheus |
+| Service | What it does |
+|---------|--------------|
+| **n8n** | Workflow engine, queue mode with Redis |
+| **PostgreSQL 16** | Database backend |
+| **Redis 7** | Job queue for async workflow execution |
+| **Traefik v3** | Reverse proxy, TLS, rate limiting, security headers |
+| **Docker Socket Proxy** | Isolates the Docker socket from Traefik |
+| **pg-backup** | Daily automated database dumps with retention |
+| **Prometheus** | Metrics collection (separate stack) |
+| **Grafana** | Dashboards and alerting (separate stack) |
+| **Postgres Exporter** | DB metrics for Prometheus |
+| **Redis Exporter** | Cache metrics for Prometheus |
 
 ## Architecture
 
 ```
-                    Internet
-                       │
-                       ▼
-              ┌─────────────────┐
-              │    Traefik       │  :80 (redirect) + :443 (TLS)
-              │    reverse proxy │
-              └────────┬────────┘
-                       │ n8n-frontend network
-          ┌────────────┼────────────┐
-          ▼                         ▼
-   ┌──────────────┐        ┌──────────────┐
-   │     n8n      │        │   Grafana    │
-   │   :5678      │        │ /grafana     │
-   └──────┬───────┘        └──────┬───────┘
-          │ n8n-backend           │ n8n-monitoring
-          │ (internal)            │ (internal)
-   ┌──────┴───────┐        ┌─────┴────────┐
-   │  PostgreSQL  │        │  Prometheus  │
-   │  Redis       │        │  Exporters   │
-   │  pg-backup   │        │              │
-   └──────────────┘        └──────────────┘
+                  Network / Internet
+                       |
+                       v
+              +-------------------+
+              |     Traefik       |  :80 (redirect) + :443 (TLS)
+              |   reverse proxy   |
+              +---------+---------+
+                        | n8n-frontend
+           +------------+------------+
+           v                         v
+    +--------------+        +--------------+
+    |     n8n      |        |   Grafana    |
+    |   :5678      |        |  /grafana    |
+    +------+-------+        +------+-------+
+           | n8n-backend           | n8n-monitoring
+           | (internal)            | (internal)
+    +------+-------+        +-----+--------+
+    |  PostgreSQL  |        |  Prometheus  |
+    |  Redis       |        |  Exporters   |
+    |  pg-backup   |        |              |
+    +--------------+        +--------------+
 ```
 
-Three isolated networks keep things separated:
+**Four isolated networks:**
 
-- **n8n-backend** (internal, no internet access): Postgres, Redis, n8n, backup, exporters
-- **n8n-frontend** (bridged): Traefik, n8n, Grafana. Only Traefik publishes ports.
-- **n8n-monitoring** (internal, no internet access): Prometheus, Grafana, exporters, Traefik, n8n
+- **n8n-socket** (internal) -- Socket proxy talks to Traefik. Nothing else.
+- **n8n-backend** (internal, no internet) -- Postgres, Redis, n8n, backup, exporters.
+- **n8n-frontend** (bridged) -- Traefik, n8n, Grafana. Only Traefik publishes ports.
+- **n8n-monitoring** (internal, no internet) -- Prometheus, Grafana, exporters.
+
+## TLS
+
+TLS is always on. The setup script asks how you want to handle certificates:
+
+| Mode | When to use | How it works |
+|------|-------------|--------------|
+| **Domain** | You have a domain pointed at the server | Traefik gets a Let's Encrypt cert automatically |
+| **IP / localhost** | On-prem, LAN, no domain | Traefik uses its built-in self-signed cert |
+
+Both use the same encryption strength. The difference is trust: Let's Encrypt certs are signed by a public CA so browsers trust them silently. Self-signed certs trigger a browser warning you click through once. On a LAN or known IP, that's fine.
 
 ## Prerequisites
 
-- A Linux server (or VM) with Docker and Docker Compose v2 installed
-- A domain name pointed at your server's IP (for Let's Encrypt TLS)
-- Ports 80 and 443 open
+- **Linux** server or VM (Ubuntu 22.04+, Debian 12+, or similar)
+- Docker Engine and Docker Compose v2 installed
+- Ports 80 and 443 available
+- A domain pointed at the server (only if you want Let's Encrypt)
+
+> **Why Linux and not macOS?** See [Platform Notes](#platform-notes) below.
 
 ## Quick Start
 
 ### 1. Clone and configure
 
 ```bash
-git clone <your-repo-url> && cd self-hosted
-
-# Copy the example env file and fill in your values
-cp .env.example .env
+git clone https://github.com/MarcusScipio/hardened-n8n-setup.git
+cd hardened-n8n-setup
 ```
 
-Open `.env` and set these:
+Run the setup script. It walks you through TLS mode, generates all passwords and encryption keys, and writes both `.env` files for you:
 
-```env
-POSTGRES_PASSWORD=your-strong-db-password
-N8N_ENCRYPTION_KEY=...    # generate with: openssl rand -hex 32
-N8N_JWT_SECRET=...        # generate with: openssl rand -hex 32
-N8N_HOST=n8n.yourdomain.com
-ACME_EMAIL=you@yourdomain.com
+```bash
+./setup.sh
 ```
+
+You can also do it manually if you prefer. Copy `.env.example` to `.env` (and `monitoring/.env.example` to `monitoring/.env`) and fill in the values. Generate encryption keys with `openssl rand -hex 32`.
 
 ### 2. Start the app stack
 
@@ -87,127 +100,131 @@ ACME_EMAIL=you@yourdomain.com
 docker compose up -d
 ```
 
-This brings up n8n, Postgres, Redis, Traefik, and the backup service. It also creates the shared Docker networks that the monitoring stack will use.
+This brings up n8n, Postgres, Redis, Traefik, the socket proxy, and the backup service. It also creates the Docker networks that the monitoring stack connects to.
 
-Give it about 30 seconds for health checks to pass. You can watch the progress:
+Wait about 30 seconds for health checks to settle:
 
 ```bash
 docker compose ps
 docker compose logs -f n8n
 ```
 
-Once healthy, visit `https://n8n.yourdomain.com` and create your admin account.
+Once healthy, open `https://<your-host>` and create your first admin account.
 
-### 3. Start the monitoring stack (optional but recommended)
+### 3. Start the monitoring stack
 
 ```bash
 cd monitoring
-cp .env.example .env
-# Edit .env: set GF_SECURITY_ADMIN_PASSWORD and make sure
-# POSTGRES_PASSWORD and N8N_HOST match the parent .env
 docker compose up -d
 ```
 
-Grafana will be available at `https://n8n.yourdomain.com/grafana/` with Prometheus pre-configured as a data source.
+The setup script already created `monitoring/.env`. Grafana is at `https://<your-host>/grafana/` with Prometheus pre-wired as a data source.
 
 ## Project Structure
 
 ```
-self-hosted/
-├── .env.example                              # App stack secrets template
-├── .gitignore
-├── docker-compose.yml                        # App stack (n8n + infra)
-├── config/
-│   ├── prometheus/
-│   │   └── prometheus.yml                    # Scrape targets config
-│   └── grafana/
-│       └── provisioning/
-│           └── datasources/
-│               └── prometheus.yml            # Auto-provision data source
-└── monitoring/
-    ├── .env.example                          # Monitoring secrets template
-    └── docker-compose.yml                    # Prometheus + Grafana + exporters
+hardened-n8n-setup/
+|-- .env.example                              App stack config template
+|-- .gitignore
+|-- setup.sh                                  Interactive setup, generates .env files
+|-- docker-compose.yml                        App stack (n8n + infra)
+|-- config/
+|   |-- prometheus/
+|   |   +-- prometheus.yml                    Scrape targets
+|   +-- grafana/
+|       +-- provisioning/
+|           +-- datasources/
+|               +-- prometheus.yml            Auto-provisions Prometheus in Grafana
++-- monitoring/
+    |-- .env.example                          Monitoring config template
+    +-- docker-compose.yml                    Prometheus + Grafana + exporters
 ```
 
-## Security Hardening
+## Security Details
 
-Every container in this stack follows the same hardening playbook:
+Every container follows the same hardening approach.
 
-**Filesystem**
-- Read-only root filesystem (`read_only: true`)
-- Writable paths limited to named volumes and explicit `tmpfs` mounts
-- All `tmpfs` mounts use `noexec,nosuid` flags
+### Filesystem
 
-**Process isolation**
-- All Linux capabilities dropped (`cap_drop: ALL`), added back only when strictly needed
-- `no-new-privileges` prevents privilege escalation after container start
-- Non-root users with explicit UID:GID on every service
+- Read-only root filesystem on all containers
+- Writable paths limited to named volumes and explicit tmpfs mounts
+- All tmpfs mounts set to `noexec,nosuid`
 
-**Network isolation**
-- Backend services (Postgres, Redis) have zero internet access via `internal: true` networks
+### Process Isolation
+
+- All Linux capabilities dropped (`cap_drop: ALL`), re-added only where needed
+- `no-new-privileges` on every container
+- Non-root users with explicit UID/GID everywhere
+
+### Docker Socket
+
+The Docker socket is never exposed directly to Traefik. Instead, a dedicated socket proxy ([tecnativa/docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy)) sits between them:
+
+- The proxy mounts the socket read-only
+- Only the API endpoints Traefik needs are allowed (containers, networks, services, version, info)
+- Everything else is blocked: no exec, no image builds, no volume access, no POST requests
+- Traefik talks to the proxy over an internal network, never touches the socket
+
+This matters because the Docker socket is effectively root access to the host. Giving it directly to Traefik (even read-only) means a Traefik compromise could read sensitive container info. The proxy limits the blast radius.
+
+### Network Isolation
+
+- Backend services (Postgres, Redis) have zero internet access
 - Only Traefik publishes ports to the host
-- Services only join the networks they actually need
+- Each service joins only the networks it actually needs
 
-**Resource limits**
-- CPU and memory limits on every container
+### Resource Limits
+
+- CPU and memory caps on every container
 - Prevents any single service from starving the host
 
-**Traefik specifics**
-- Docker socket mounted read-only
+### Traefik
+
 - Dashboard disabled
-- `exposedbydefault=false` so new containers aren't auto-exposed
-- HSTS preloading, XSS protection, frame denial, content-type sniffing prevention
-- Rate limiting (100 req/min with burst tolerance of 50)
+- `exposedbydefault=false` -- new containers are not auto-exposed
+- HSTS with preloading, XSS filter, frame denial, content-type sniffing prevention
+- Rate limiting: 100 requests/minute, burst tolerance of 50
+- Referrer and permissions policies locked down
 
-**Redis specifics**
-- Dangerous commands (`FLUSHDB`, `FLUSHALL`, `DEBUG`) renamed to empty strings
-- Protected mode enabled
-- Memory capped with LRU eviction
+### Redis
 
-**Postgres specifics**
-- Image pinned by SHA256 digest, not just tag
-- `PGDATA` on a dedicated volume, everything else immutable
+- `FLUSHDB`, `FLUSHALL`, `DEBUG` commands disabled (renamed to empty strings)
+- Protected mode on
+- Memory capped at 128MB with LRU eviction
 
 ## Backups
 
-The `pg-backup` service runs automated `pg_dump` on a schedule:
+The `pg-backup` service runs automated `pg_dump` daily:
 
-| Setting | Default |
-|---------|---------|
-| Schedule | Daily |
-| Keep daily backups | 7 days |
-| Keep weekly backups | 4 weeks |
-| Keep monthly backups | 6 months |
+| Retention | Default |
+|-----------|---------|
+| Daily | 7 days |
+| Weekly | 4 weeks |
+| Monthly | 6 months |
 
-Backups are stored in the `pg_backups` Docker volume. To copy them to the host:
+Backups live in the `pg_backups` Docker volume. Pull them to the host:
 
 ```bash
 docker cp n8n-pg-backup:/backups ./backups
 ```
 
-For off-site backup, mount a different volume driver or add a sync job to your cloud storage of choice.
-
-### Manual backup
+**Manual backup:**
 
 ```bash
 docker exec n8n-postgres pg_dump -U n8n -d n8n > backup_$(date +%Y%m%d).sql
 ```
 
-### Restore
+**Restore:**
 
 ```bash
-cat backup_20260317.sql | docker exec -i n8n-postgres psql -U n8n -d n8n
+cat backup.sql | docker exec -i n8n-postgres psql -U n8n -d n8n
 ```
 
 ## Monitoring
 
-The monitoring stack is intentionally separate from the app stack. It runs as its own Compose project and connects to the app's Docker networks as external. This means:
+The monitoring stack is a separate Compose project on purpose. It connects to the app stack's networks but has its own lifecycle. You can tear it down, restart it, or swap components without touching n8n. If you add more n8n instances later, one monitoring stack watches them all.
 
-- You can restart or update monitoring without touching n8n
-- You can tear it down entirely and n8n keeps running
-- If you run multiple n8n instances later, one monitoring stack can observe them all
-
-### What gets scraped
+### Scrape Targets
 
 | Target | Endpoint | Port |
 |--------|----------|------|
@@ -216,33 +233,33 @@ The monitoring stack is intentionally separate from the app stack. It runs as it
 | PostgreSQL | via postgres-exporter | 9187 |
 | Redis | via redis-exporter | 9121 |
 
-### Adding Grafana dashboards
+### Grafana Dashboards
 
-Grafana starts with Prometheus pre-provisioned. Some recommended dashboard IDs to import:
+Prometheus is auto-provisioned. Import these dashboard IDs for a quick start:
 
-- **n8n**: Check the [n8n docs](https://docs.n8n.io) for their official dashboard JSON
 - **PostgreSQL**: `9628`
 - **Redis**: `11835`
 - **Traefik**: `17346`
+- **n8n**: Check the [n8n docs](https://docs.n8n.io) for their official JSON
 
-Import via Grafana UI > Dashboards > Import > paste the ID.
+Grafana UI > Dashboards > Import > paste the ID.
 
 ## Updating
 
-### n8n
+**n8n:**
 
 ```bash
 docker compose pull n8n
 docker compose up -d n8n
 ```
 
-Consider pinning n8n to a specific version tag instead of `latest` for production stability:
+For production, pin to a version tag instead of `latest`:
 
 ```yaml
 image: n8nio/n8n:1.82.1
 ```
 
-### Monitoring stack
+**Monitoring:**
 
 ```bash
 cd monitoring
@@ -250,38 +267,62 @@ docker compose pull
 docker compose up -d
 ```
 
+## Platform Notes
+
+### This stack targets Linux
+
+All hardening features (read-only filesystems, capability dropping, socket proxy, non-root users) work natively on Linux with Docker Engine. That's where this is designed to run.
+
+### macOS (Docker Desktop) has issues
+
+Docker Desktop on macOS runs containers inside a hidden Linux VM. This introduces several problems with a hardened setup:
+
+- **Docker socket**: Docker Desktop proxies the socket through its VM layer. The socket proxy and Traefik can fail with empty API errors (`"Error response from daemon: ""`) because of how Docker Desktop handles API version negotiation. The minimum API version on recent Docker Desktop (v4.60+) is 1.44, but Traefik's Go client starts negotiation at 1.24, which gets rejected before it can upgrade.
+- **File permissions**: UID/GID mappings behave differently because of the macOS-to-Linux VM translation layer. Containers that work fine on native Linux can hit permission errors on Desktop.
+- **Read-only filesystems**: Some containers that run fine with `read_only: true` on Linux will fail on Docker Desktop due to how the VM handles tmpfs and bind mounts.
+
+If you want to develop or test on a Mac, run a Linux VM (UTM, Parallels, or VirtualBox) with Docker Engine installed natively. That gives you the same behavior as production and avoids all of these issues.
+
+### Windows (WSL2)
+
+Should work inside a WSL2 distribution with Docker Engine (not Docker Desktop). Not tested, but the same Linux-native behavior applies.
+
 ## Troubleshooting
 
-**n8n won't start, logs show database connection errors**
+**n8n won't start, database connection errors**
 
-Postgres might still be initializing. Check its health:
+Postgres might still be starting up. Check health and logs:
+
 ```bash
 docker compose ps postgres
 docker compose logs postgres
 ```
 
-**Let's Encrypt certificate not issued**
+**Let's Encrypt cert not issued**
 
-Make sure port 80 is reachable from the internet. Traefik needs it for the HTTP-01 challenge. Check:
+Only applies if you chose domain mode. Port 80 must be reachable from the public internet for the HTTP-01 challenge:
+
 ```bash
 docker compose logs traefik | grep acme
 ```
 
-**Grafana shows "No data" in dashboards**
+**Browser shows certificate warning**
 
-The monitoring stack needs to reach the app containers through shared networks. Make sure you started the app stack first (it creates the networks).
+Expected with self-signed TLS (IP/localhost mode). The encryption is real, same strength as Let's Encrypt. Accept and continue.
 
-**Redis exporter can't connect**
+**Grafana shows "No data"**
 
-If you renamed Redis commands, the exporter's `PING` still works since we didn't rename it. Check the Redis logs:
+Start the app stack first. It creates the networks the monitoring stack connects to.
+
+**Socket proxy errors**
+
+If Traefik logs show errors reaching the socket proxy, check that the proxy is running:
+
 ```bash
-docker compose logs redis
+docker compose ps socket-proxy
+docker compose logs socket-proxy
 ```
 
 ## License
 
 MIT
-
----
-
-Built with care, not with defaults.
