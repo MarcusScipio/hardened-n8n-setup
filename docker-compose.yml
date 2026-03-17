@@ -1,0 +1,314 @@
+version: "3.9"
+
+# =============================================================================
+# N8N Self-Hosted — Hardened Docker Compose Stack
+# =============================================================================
+# Bootstrap order:
+#   1. docker compose up -d          (this file — creates networks + app)
+#   2. cd monitoring && docker compose up -d  (monitoring stack joins networks)
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — persistent backend
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine@sha256:d898b0b78a2627cb4ee63464a14571c726580b0f32a4a9052f14b71b6a8dbabb
+    container_name: n8n-postgres
+    restart: unless-stopped
+    user: "70:70"  # postgres user in alpine
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+      - /run/postgresql:noexec,nosuid,size=8m
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-n8n}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-n8n}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    networks:
+      - n8n-backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # Traefik — reverse proxy with auto TLS
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.3
+    container_name: n8n-traefik
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_certs:/certs
+    command:
+      # --- Entrypoints ---
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      # --- TLS via Let's Encrypt ---
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?ACME_EMAIL is required}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/certs/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      # --- Provider ---
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=n8n-frontend"
+      # --- Internal metrics entrypoint ---
+      - "--entrypoints.metrics.address=:8082"
+      - "--metrics.prometheus.entrypoint=metrics"
+      # --- API / Dashboard ---
+      - "--api.dashboard=false"
+      # --- Logging ---
+      - "--log.level=WARN"
+      - "--accesslog=true"
+      - "--accesslog.bufferingsize=100"
+      # --- Metrics for Prometheus ---
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.addEntryPointsLabels=true"
+      - "--metrics.prometheus.addServicesLabels=true"
+    networks:
+      - n8n-frontend
+      - n8n-monitoring
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # n8n — workflow automation engine (queue mode)
+  # ---------------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n-app
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,size=128m
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - n8n_files:/files
+    environment:
+      # --- Database ---
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-n8n}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-n8n}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # --- Queue mode (Redis) ---
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      # --- Security ---
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY is required}
+      N8N_USER_MANAGEMENT_JWT_SECRET: ${N8N_JWT_SECRET:?N8N_JWT_SECRET is required}
+      # --- General ---
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_HOST:-localhost}/
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_TEMPLATES_ENABLED: "true"
+      # --- Metrics (for Prometheus) ---
+      N8N_METRICS: "true"
+      N8N_METRICS_PREFIX: n8n_
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - n8n-backend
+      - n8n-frontend
+      - n8n-monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=Host(`${N8N_HOST:-localhost}`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+      - "traefik.http.routers.n8n.middlewares=n8n-headers@docker,n8n-ratelimit@docker"
+      # Security headers
+      - "traefik.http.middlewares.n8n-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.n8n-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.n8n-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.n8n-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.n8n-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.n8n-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.n8n-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.n8n-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.n8n-headers.headers.permissionsPolicy=camera=(), microphone=(), geolocation=()"
+      # Rate limiting
+      - "traefik.http.middlewares.n8n-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.n8n-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.n8n-ratelimit.ratelimit.period=1m"
+
+  # ---------------------------------------------------------------------------
+  # Redis — queue backend for scaling & reliability
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine@sha256:de0e6a08407a46e5fafc9497548ac02e1a399a39ce4b4384a9242e91e99e5deb
+    container_name: n8n-redis
+    restart: unless-stopped
+    user: "999:999"  # redis user in alpine
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,size=32m
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --protected-mode yes
+      --rename-command FLUSHDB ""
+      --rename-command FLUSHALL ""
+      --rename-command DEBUG ""
+    networks:
+      - n8n-backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Backup — automated daily dumps
+  # ---------------------------------------------------------------------------
+  pg-backup:
+    image: prodrigestivill/postgres-backup-local:16
+    container_name: n8n-pg-backup
+    restart: unless-stopped
+    user: "70:70"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    volumes:
+      - pg_backups:/backups
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-n8n}
+      POSTGRES_USER: ${POSTGRES_USER:-n8n}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+      HEALTHCHECK_PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - n8n-backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  n8n_data:
+    driver: local
+  n8n_files:
+    driver: local
+  traefik_certs:
+    driver: local
+  pg_backups:
+    driver: local
+
+# =============================================================================
+# Networks — created here, consumed by monitoring stack as external
+# =============================================================================
+networks:
+  n8n-backend:
+    driver: bridge
+    internal: true  # no external access — only inter-service
+  n8n-frontend:
+    driver: bridge  # external-facing — traefik + n8n + grafana
+  n8n-monitoring:
+    driver: bridge
+    internal: true  # prometheus + grafana + exporters only
