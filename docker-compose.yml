@@ -207,7 +207,7 @@ services:
       --maxmemory 128mb
       --maxmemory-policy allkeys-lru
       --appendonly yes
-      --protected-mode yes
+      --protected-mode no
       --rename-command FLUSHDB ""
       --rename-command FLUSHALL ""
       --rename-command DEBUG ""
