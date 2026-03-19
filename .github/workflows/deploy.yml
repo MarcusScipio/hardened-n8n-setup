@@ -67,7 +67,7 @@ jobs:
             --zone="$GCP_ZONE" \
             --tunnel-through-iap \
             --ssh-flag="-o StrictHostKeyChecking=no" \
-            --command="cd /opt/n8n && sudo git pull origin main && sudo docker compose up -d && sudo docker compose -f monitoring/docker-compose.yml up -d" \
+            --command="cd /opt/n8n && sudo git pull origin main && sudo docker compose up -d --remove-orphans && sudo docker compose -f monitoring/docker-compose.yml up -d" \
             --quiet
 
       - name: Show container status

@@ -73,15 +73,11 @@ N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)
 N8N_JWT_SECRET=$(openssl rand -hex 32)
 
 if [[ -n "$N8N_DOMAIN" ]]; then
-  TRAEFIK_RULE="Host(\`${N8N_DOMAIN}\`)"
-  TRAEFIK_CERTRESOLVER="letsencrypt"
   N8N_HOST="$N8N_DOMAIN"
   N8N_PROTOCOL="https"
 else
   EXTERNAL_IP=$(curl -sf -H "Metadata-Flavor: Google" \
     http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
-  TRAEFIK_RULE="PathPrefix(\`/\`)"
-  TRAEFIK_CERTRESOLVER=""
   N8N_HOST="${EXTERNAL_IP}"
   N8N_PROTOCOL="https"
   ACME_EMAIL=""
@@ -97,22 +93,52 @@ N8N_JWT_SECRET=${N8N_JWT_SECRET}
 N8N_HOST=${N8N_HOST}
 N8N_PROTOCOL=${N8N_PROTOCOL}
 ACME_EMAIL=${ACME_EMAIL}
-TRAEFIK_RULE=${TRAEFIK_RULE}
 EOF
 chmod 600 .env
 
-# --- Generate override for domain mode (certresolver) ---
+# --- Generate Traefik dynamic config ---
 if [[ -n "$N8N_DOMAIN" ]]; then
-  cat > docker-compose.override.yml <<'OVERRIDE'
-services:
-  n8n:
-    labels:
-      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
-OVERRIDE
-  echo "[$(date)] Domain mode: certresolver override created"
+  cat > config/traefik/dynamic.yml <<EOF
+http:
+  routers:
+    n8n:
+      rule: "Host(\`${N8N_DOMAIN}\`)"
+      entrypoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      service: n8n
+      middlewares:
+        - n8n-headers
+        - n8n-ratelimit
+
+  services:
+    n8n:
+      loadBalancer:
+        servers:
+          - url: "http://n8n:5678"
+
+  middlewares:
+    n8n-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        frameDeny: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+    n8n-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: "1m"
+EOF
+  echo "[$(date)] Domain mode: Traefik config with Let's Encrypt"
 else
-  rm -f docker-compose.override.yml
-  echo "[$(date)] IP mode: no certresolver needed (self-signed)"
+  echo "[$(date)] IP mode: using default Traefik config (self-signed)"
 fi
 
 cat > monitoring/.env <<EOF

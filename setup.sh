@@ -90,22 +90,51 @@ N8N_PROTOCOL=${N8N_PROTOCOL}
 
 # --- TLS (${TLS_MODE}) ---
 ACME_EMAIL=${ACME_EMAIL}
-TRAEFIK_RULE=${TRAEFIK_RULE}
 EOF
 
 chmod 600 .env
 
-# --- Generate override for domain mode (certresolver) ---
+# --- Generate Traefik dynamic config for domain mode ---
 if [[ "$TLS_MODE" == "letsencrypt" ]]; then
-  cat > docker-compose.override.yml <<'OVERRIDE'
-services:
-  n8n:
-    labels:
-      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
-OVERRIDE
-  echo "  Created docker-compose.override.yml (Let's Encrypt certresolver)"
-else
-  rm -f docker-compose.override.yml
+  cat > config/traefik/dynamic.yml <<EOF
+http:
+  routers:
+    n8n:
+      rule: "Host(\`${N8N_HOST}\`)"
+      entrypoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      service: n8n
+      middlewares:
+        - n8n-headers
+        - n8n-ratelimit
+
+  services:
+    n8n:
+      loadBalancer:
+        servers:
+          - url: "http://n8n:5678"
+
+  middlewares:
+    n8n-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        frameDeny: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+    n8n-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: "1m"
+EOF
+  echo "  Traefik config updated for Let's Encrypt"
 fi
 
 # --- Write monitoring .env ---

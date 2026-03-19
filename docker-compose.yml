@@ -55,50 +55,6 @@ services:
           memory: 128M
 
   # ---------------------------------------------------------------------------
-  # Docker Socket Proxy — controlled API access for Traefik
-  # ---------------------------------------------------------------------------
-  socket-proxy:
-    image: tecnativa/docker-socket-proxy:latest
-    container_name: n8n-socket-proxy
-    restart: unless-stopped
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    tmpfs:
-      - /tmp:noexec,nosuid,size=8m
-      - /run:noexec,nosuid,size=8m
-      - /var/lib/haproxy:noexec,nosuid,size=8m
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      CONTAINERS: 1
-      NETWORKS: 1
-      SERVICES: 1
-      TASKS: 1
-      VERSION: 1
-      INFO: 1
-      POST: 0
-      BUILD: 0
-      COMMIT: 0
-      CONFIGS: 0
-      DISTRIBUTION: 0
-      EXEC: 0
-      IMAGES: 0
-      NODES: 0
-      PLUGINS: 0
-      SECRETS: 0
-      SWARM: 0
-      SYSTEM: 0
-      VOLUMES: 0
-    networks:
-      - n8n-socket
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 64M
-
-  # ---------------------------------------------------------------------------
   # Traefik — reverse proxy, TLS termination, security middleware
   # ---------------------------------------------------------------------------
   traefik:
@@ -112,15 +68,12 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
-    environment:
-      DOCKER_API_VERSION: "1.40"
-    depends_on:
-      - socket-proxy
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - traefik_certs:/certs
+      - ./config/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
     command:
       # --- Entrypoints ---
       - "--entrypoints.web.address=:80"
@@ -131,10 +84,9 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-noop@localhost}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/certs/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-      # --- Provider (via socket proxy) ---
-      - "--providers.docker.endpoint=tcp://socket-proxy:2375"
-      - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=n8n-frontend"
+      # --- Provider (file-based routing) ---
+      - "--providers.file.filename=/etc/traefik/dynamic.yml"
+      - "--providers.file.watch=true"
       # --- Internal metrics entrypoint ---
       - "--entrypoints.metrics.address=:8082"
       - "--metrics.prometheus.entrypoint=metrics"
@@ -151,7 +103,6 @@ services:
       - "--metrics.prometheus.addEntryPointsLabels=true"
       - "--metrics.prometheus.addServicesLabels=true"
     networks:
-      - n8n-socket
       - n8n-frontend
       - n8n-monitoring
     healthcheck:
@@ -233,25 +184,6 @@ services:
         reservations:
           cpus: "0.5"
           memory: 256M
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.n8n.rule=${TRAEFIK_RULE:-PathPrefix(`/`)}"
-      - "traefik.http.routers.n8n.entrypoints=websecure"
-      - "traefik.http.routers.n8n.tls=true"
-      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
-      - "traefik.http.routers.n8n.middlewares=n8n-headers@docker,n8n-ratelimit@docker"
-      - "traefik.http.middlewares.n8n-headers.headers.stsSeconds=31536000"
-      - "traefik.http.middlewares.n8n-headers.headers.stsIncludeSubdomains=true"
-      - "traefik.http.middlewares.n8n-headers.headers.stsPreload=true"
-      - "traefik.http.middlewares.n8n-headers.headers.forceSTSHeader=true"
-      - "traefik.http.middlewares.n8n-headers.headers.contentTypeNosniff=true"
-      - "traefik.http.middlewares.n8n-headers.headers.browserXssFilter=true"
-      - "traefik.http.middlewares.n8n-headers.headers.frameDeny=true"
-      - "traefik.http.middlewares.n8n-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
-      - "traefik.http.middlewares.n8n-headers.headers.permissionsPolicy=camera=(), microphone=(), geolocation=()"
-      - "traefik.http.middlewares.n8n-ratelimit.ratelimit.average=100"
-      - "traefik.http.middlewares.n8n-ratelimit.ratelimit.burst=50"
-      - "traefik.http.middlewares.n8n-ratelimit.ratelimit.period=1m"
 
   # ---------------------------------------------------------------------------
   # Redis — queue backend for scaling & reliability
@@ -353,10 +285,6 @@ volumes:
 # Networks — created here, consumed by monitoring stack as external
 # =============================================================================
 networks:
-  n8n-socket:
-    name: n8n-socket
-    driver: bridge
-    internal: true
   n8n-backend:
     name: n8n-backend
     driver: bridge
