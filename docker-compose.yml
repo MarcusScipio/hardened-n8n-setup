@@ -133,6 +133,7 @@ services:
       - "--providers.docker.endpoint=tcp://socket-proxy:2375"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=n8n-frontend"
+      - "--providers.docker.apiVersion=1.40"
       # --- Internal metrics entrypoint ---
       - "--entrypoints.metrics.address=:8082"
       - "--metrics.prometheus.entrypoint=metrics"
