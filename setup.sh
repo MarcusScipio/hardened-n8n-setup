@@ -101,7 +101,7 @@ http:
   routers:
     n8n:
       rule: "Host(\`${N8N_HOST}\`)"
-      entrypoints:
+      entryPoints:
         - websecure
       tls:
         certResolver: letsencrypt

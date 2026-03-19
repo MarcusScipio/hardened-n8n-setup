@@ -1,0 +1,42 @@
+# =============================================================================
+# Traefik Dynamic Configuration — default (IP/self-signed mode)
+# =============================================================================
+# For domain mode, bootstrap.sh or setup.sh generates traefik-dynamic.yml
+# which overrides this file via volume mount.
+# =============================================================================
+
+http:
+  routers:
+    n8n:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - websecure
+      tls: {}
+      service: n8n
+      middlewares:
+        - n8n-headers
+        - n8n-ratelimit
+
+  services:
+    n8n:
+      loadBalancer:
+        servers:
+          - url: "http://n8n:5678"
+
+  middlewares:
+    n8n-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        frameDeny: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+    n8n-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: "1m"
