@@ -12,7 +12,7 @@ jobs:
     environment: GCP_SA_KEY
 
     env:
-      VM_NAME: ${{ vars.VM_NAME || 'n8n-server' }}
+      VM_NAME: ${{ vars.VM_NAME || 'n8n-server-test' }}
       GCP_ZONE: ${{ vars.GCP_ZONE || 'europe-west1-b' }}
       GCP_REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
       GCP_MACHINE: ${{ vars.GCP_MACHINE || 'e2-small' }}
