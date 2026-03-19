@@ -63,17 +63,17 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ../config/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3000:3000"   # localhost only — access via SSH tunnel
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_SERVER_ROOT_URL: https://${N8N_HOST:-localhost}/grafana/
-      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-      GF_SECURITY_COOKIE_SECURE: "true"
-      GF_SECURITY_STRICT_TRANSPORT_SECURITY: "true"
+      GF_SERVER_ROOT_URL: http://localhost:3000/
+      GF_SECURITY_COOKIE_SECURE: "false"
+      GF_SECURITY_STRICT_TRANSPORT_SECURITY: "false"
     networks:
       - n8n-monitoring
-      - n8n-frontend
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
       interval: 15s
@@ -88,12 +88,6 @@ services:
         reservations:
           cpus: "0.1"
           memory: 64M
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.grafana.rule=Host(`${N8N_HOST:-localhost}`) && PathPrefix(`/grafana`)"
-      - "traefik.http.routers.grafana.entrypoints=websecure"
-      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
-      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
 
   # ---------------------------------------------------------------------------
   # Postgres Exporter — metrics for PostgreSQL
@@ -157,6 +151,4 @@ networks:
   n8n-monitoring:
     external: true
   n8n-backend:
-    external: true
-  n8n-frontend:
     external: true

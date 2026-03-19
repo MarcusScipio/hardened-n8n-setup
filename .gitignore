@@ -1,2 +1,3 @@
 .env
 monitoring/.env
+n8n-lock.json

@@ -2,9 +2,9 @@
 
 A production-ready, security-first n8n deployment using Docker Compose. Every container is locked down: read-only filesystems, dropped capabilities, non-root users, isolated networks, resource limits. No shortcuts.
 
-Deploys the same way on-prem or cloud. Same security posture either way.
+Two deployment paths: run it on your own Linux box, or provision a hardened GCP VM with one command. Same security posture either way.
 
-![Containers](https://img.shields.io/badge/containers-11-blue)
+![Containers](https://img.shields.io/badge/containers-10-blue)
 ![TLS](https://img.shields.io/badge/TLS-always%20on-green)
 ![Monitoring](https://img.shields.io/badge/monitoring-Prometheus%20%2B%20Grafana-orange)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
@@ -20,46 +20,54 @@ Deploys the same way on-prem or cloud. Same security posture either way.
 | **Docker Socket Proxy** | Isolates the Docker socket from Traefik |
 | **pg-backup** | Daily automated database dumps with retention |
 | **Prometheus** | Metrics collection (separate stack) |
-| **Grafana** | Dashboards and alerting (separate stack) |
+| **Grafana** | Dashboards and alerting (localhost only, SSH tunnel access) |
 | **Postgres Exporter** | DB metrics for Prometheus |
 | **Redis Exporter** | Cache metrics for Prometheus |
 
 ## Architecture
 
 ```
-                  Network / Internet
-                       |
-                       v
-              +-------------------+
-              |     Traefik       |  :80 (redirect) + :443 (TLS)
-              |   reverse proxy   |
-              +---------+---------+
-                        | n8n-frontend
-           +------------+------------+
-           v                         v
-    +--------------+        +--------------+
-    |     n8n      |        |   Grafana    |
-    |   :5678      |        |  /grafana    |
-    +------+-------+        +------+-------+
-           | n8n-backend           | n8n-monitoring
-           | (internal)            | (internal)
-    +------+-------+        +-----+--------+
-    |  PostgreSQL  |        |  Prometheus  |
-    |  Redis       |        |  Exporters   |
-    |  pg-backup   |        |              |
-    +--------------+        +--------------+
+                  Internet
+                     |
+              +------+------+
+              |   Traefik   |  :80 (redirect) + :443 (TLS)
+              +------+------+
+                     | n8n-frontend
+                     v
+              +--------------+
+              |     n8n      |
+              |   :5678      |
+              +------+-------+
+                     | n8n-backend (internal)
+              +------+-------+
+              |  PostgreSQL  |
+              |  Redis       |
+              |  pg-backup   |
+              +--------------+
+
+         n8n-monitoring (internal)
+              +--------------+
+              |  Prometheus  |
+              |  Exporters   |
+              +------+-------+
+                     |
+              +------+-------+
+              |   Grafana    |  127.0.0.1:3000 (SSH tunnel only)
+              +--------------+
 ```
 
 **Four isolated networks:**
 
 - **n8n-socket** (internal) -- Socket proxy talks to Traefik. Nothing else.
 - **n8n-backend** (internal, no internet) -- Postgres, Redis, n8n, backup, exporters.
-- **n8n-frontend** (bridged) -- Traefik, n8n, Grafana. Only Traefik publishes ports.
+- **n8n-frontend** (bridged) -- Traefik and n8n. Only Traefik publishes ports.
 - **n8n-monitoring** (internal, no internet) -- Prometheus, Grafana, exporters.
+
+Grafana is **not** exposed through Traefik. It binds to `127.0.0.1:3000` only and is accessed via SSH tunnel. This keeps your monitoring dashboard off the public internet entirely.
 
 ## TLS
 
-TLS is always on. The setup script asks how you want to handle certificates:
+TLS is always on. You choose how certificates are handled:
 
 | Mode | When to use | How it works |
 |------|-------------|--------------|
@@ -71,30 +79,45 @@ Both use the same encryption strength. The difference is trust: Let's Encrypt ce
 ## Prerequisites
 
 - **Linux** server or VM (Ubuntu 22.04+, Debian 12+, or similar)
-- Docker Engine and Docker Compose v2 installed
+- Docker Engine and Docker Compose v2
 - Ports 80 and 443 available
 - A domain pointed at the server (only if you want Let's Encrypt)
 
 > **Why Linux and not macOS?** See [Platform Notes](#platform-notes) below.
 
-## Quick Start
+---
 
-### 1. Clone and configure
+## Deployment
+
+Pick your path:
+
+| Path | Best for | What it does |
+|------|----------|--------------|
+| [Local / On-Prem](#option-a-local--on-prem) | Your own Linux server, VM, homelab | Interactive setup, you manage the box |
+| [GCP (automated)](#option-b-deploy-to-gcp) | Cloud deployment | Provisions a hardened VM with networking, runs everything automatically |
+
+---
+
+### Option A: Local / On-Prem
+
+For any Linux machine you control: a bare-metal server, a VM, a VPS, whatever. You run the setup script, it asks a few questions, generates secrets, and you bring the stack up.
+
+#### 1. Clone and configure
 
 ```bash
 git clone https://github.com/MarcusScipio/hardened-n8n-setup.git
 cd hardened-n8n-setup
 ```
 
-Run the setup script. It walks you through TLS mode, generates all passwords and encryption keys, and writes both `.env` files for you:
+Run the interactive setup script. It walks you through TLS mode, generates all passwords and encryption keys, and writes both `.env` files:
 
 ```bash
 ./setup.sh
 ```
 
-You can also do it manually if you prefer. Copy `.env.example` to `.env` (and `monitoring/.env.example` to `monitoring/.env`) and fill in the values. Generate encryption keys with `openssl rand -hex 32`.
+Or do it manually: copy `.env.example` to `.env` (and `monitoring/.env.example` to `monitoring/.env`) and fill in the values. Generate encryption keys with `openssl rand -hex 32`.
 
-### 2. Start the app stack
+#### 2. Start the app stack
 
 ```bash
 docker compose up -d
@@ -111,14 +134,127 @@ docker compose logs -f n8n
 
 Once healthy, open `https://<your-host>` and create your first admin account.
 
-### 3. Start the monitoring stack
+#### 3. Start the monitoring stack
 
 ```bash
 cd monitoring
 docker compose up -d
 ```
 
-The setup script already created `monitoring/.env`. Grafana is at `https://<your-host>/grafana/` with Prometheus pre-wired as a data source.
+#### 4. Access Grafana
+
+Grafana binds to `localhost:3000` only. If you're on the machine, just open `http://localhost:3000`.
+
+From a remote machine, use an SSH tunnel:
+
+```bash
+ssh -L 3000:localhost:3000 user@your-server
+```
+
+Then open `http://localhost:3000` in your browser. Prometheus is pre-wired as a data source.
+
+---
+
+### Option B: Deploy to GCP
+
+One script provisions everything: a dedicated VPC, private subnet, Cloud Router, NAT gateway, scoped firewall rules, and a hardened Ubuntu VM that bootstraps itself.
+
+#### What gets created
+
+| Resource | Details |
+|----------|---------|
+| **VPC** | `n8n-vpc`, custom mode, no default subnets |
+| **Subnet** | `n8n-subnet`, `10.10.0.0/24`, private Google access |
+| **Cloud Router + NAT** | Outbound internet for the VM |
+| **Firewall: SSH** | Port 22 from IAP range only (`35.235.240.0/20`) |
+| **Firewall: HTTP/HTTPS** | Ports 80 + 443 from anywhere |
+| **Firewall: deny-all** | Explicit catch-all deny on everything else |
+| **VM** | Ubuntu 22.04, Shielded VM (secure boot, vTPM, integrity monitoring) |
+
+#### Prerequisites
+
+- `gcloud` CLI installed and authenticated
+- A GCP project with Compute Engine API enabled
+- Service account with these roles:
+  - **Compute Admin** (VM and firewall management)
+  - **Network Admin** (VPC, subnet, router, NAT)
+  - **IAP-secured Tunnel User** (SSH access via IAP, used by CI/CD)
+
+#### Provision
+
+```bash
+# Self-signed TLS (no domain)
+./infra/provision-gcp.sh
+
+# Let's Encrypt (with domain)
+./infra/provision-gcp.sh -d n8n.example.com -e you@email.com
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-d` | Domain name pointed at the VM | (none, uses IP) |
+| `-e` | Email for Let's Encrypt | (required with `-d`) |
+| `-r` | GCP region | `europe-west1` |
+| `-z` | GCP zone | `europe-west1-b` |
+| `-m` | Machine type | `e2-small` |
+| `-n` | VM name | `n8n-server` |
+| `-p` | GCP project ID | current gcloud config |
+
+The bootstrap script runs automatically on the VM: installs Docker, clones this repo, generates `.env` with random secrets, and starts both stacks. Takes 2-3 minutes.
+
+#### Check progress
+
+```bash
+gcloud compute ssh n8n-server --zone=europe-west1-b --tunnel-through-iap
+sudo tail -f /var/log/n8n-bootstrap.log
+```
+
+#### Access Grafana (GCP)
+
+Grafana is not exposed publicly. Access it through an IAP SSH tunnel:
+
+```bash
+gcloud compute ssh n8n-server --zone=europe-west1-b --tunnel-through-iap -- -L 3000:localhost:3000
+```
+
+Then open `http://localhost:3000`. Credentials are in `/opt/n8n/monitoring/.env` on the VM.
+
+#### CI/CD with GitHub Actions
+
+The pipeline handles everything. If the VM doesn't exist, it provisions the full infrastructure (VPC, firewall, NAT, VM) and waits for the bootstrap to complete. If the VM already exists, it SSHs in, pulls latest code, and redeploys. One click, either way.
+
+**Triggers:**
+
+- Automatic on every push to `main`
+- Manual via the **"Run workflow"** button in the Actions tab
+
+**Setup:**
+
+1. In your GitHub repo, go to Settings > Environments
+2. Create an environment named `GCP_SA_KEY`
+3. Add a **secret** named `GCP_SA_KEY` with the full service account JSON key
+4. Optionally add **variables** to override defaults:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VM_NAME` | VM instance name | `n8n-server` |
+| `GCP_ZONE` | GCP zone | `europe-west1-b` |
+| `GCP_REGION` | GCP region | `europe-west1` |
+| `GCP_MACHINE` | Machine type | `e2-small` |
+| `N8N_DOMAIN` | Domain for Let's Encrypt | (none, uses IP) |
+| `ACME_EMAIL` | Email for Let's Encrypt | (none) |
+
+If you don't set any variables, everything uses sensible defaults and the VM gets self-signed TLS on its external IP.
+
+#### SSH access
+
+```bash
+gcloud compute ssh n8n-server --zone=europe-west1-b --tunnel-through-iap
+```
+
+Everything lives in `/opt/n8n` on the VM. The `.env` files are generated there and never leave the machine.
+
+---
 
 ## Project Structure
 
@@ -126,7 +262,7 @@ The setup script already created `monitoring/.env`. Grafana is at `https://<your
 hardened-n8n-setup/
 |-- .env.example                              App stack config template
 |-- .gitignore
-|-- setup.sh                                  Interactive setup, generates .env files
+|-- setup.sh                                  Interactive setup (local/on-prem)
 |-- docker-compose.yml                        App stack (n8n + infra)
 |-- config/
 |   |-- prometheus/
@@ -135,6 +271,12 @@ hardened-n8n-setup/
 |       +-- provisioning/
 |           +-- datasources/
 |               +-- prometheus.yml            Auto-provisions Prometheus in Grafana
+|-- infra/
+|   |-- bootstrap.sh                          VM startup script (GCP automated deploy)
+|   +-- provision-gcp.sh                      Creates VPC + VM with one command
+|-- .github/
+|   +-- workflows/
+|       +-- deploy.yml                        CD pipeline (push to main -> deploy)
 +-- monitoring/
     |-- .env.example                          Monitoring config template
     +-- docker-compose.yml                    Prometheus + Grafana + exporters
@@ -171,7 +313,19 @@ This matters because the Docker socket is effectively root access to the host. G
 
 - Backend services (Postgres, Redis) have zero internet access
 - Only Traefik publishes ports to the host
+- Grafana binds to localhost only, never exposed publicly
 - Each service joins only the networks it actually needs
+
+### GCP Network Security
+
+When deployed to GCP, the provisioning script creates:
+
+- A dedicated VPC (not the default network)
+- SSH access restricted to Google's IAP range (no direct SSH from the internet)
+- Only ports 80 and 443 open inbound
+- Explicit deny-all catch-all rule
+- Cloud NAT for outbound traffic
+- Shielded VM with secure boot, vTPM, and integrity monitoring
 
 ### Resource Limits
 
@@ -222,7 +376,9 @@ cat backup.sql | docker exec -i n8n-postgres psql -U n8n -d n8n
 
 ## Monitoring
 
-The monitoring stack is a separate Compose project on purpose. It connects to the app stack's networks but has its own lifecycle. You can tear it down, restart it, or swap components without touching n8n. If you add more n8n instances later, one monitoring stack watches them all.
+The monitoring stack is a separate Compose project on purpose. It connects to the app stack's networks but has its own lifecycle. You can tear it down, restart it, or swap components without touching n8n.
+
+Grafana is accessible on `localhost:3000` only. On a remote server, use SSH tunnel (see deployment sections above).
 
 ### Scrape Targets
 

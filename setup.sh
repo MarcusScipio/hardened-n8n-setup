@@ -110,7 +110,6 @@ cat > monitoring/.env <<EOF
 POSTGRES_USER=n8n
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=n8n
-N8N_HOST=${N8N_HOST}
 
 # --- Grafana ---
 GF_SECURITY_ADMIN_PASSWORD=${GF_PASSWORD}
@@ -135,8 +134,6 @@ echo "    2. cd monitoring && docker compose up -d"
 
 if [[ "$TLS_MODE" == "letsencrypt" ]]; then
   echo "    3. Visit https://${N8N_HOST}"
-  echo ""
-  echo "  Grafana: https://${N8N_HOST}/grafana/"
 else
   if [[ "$N8N_HOST" == "localhost" ]]; then
     echo "    3. Visit https://localhost"
@@ -146,14 +143,12 @@ else
   echo ""
   echo "  Your browser will show a certificate warning. This is expected"
   echo "  with self-signed TLS. The encryption is the same."
-  echo ""
-  if [[ "$N8N_HOST" == "localhost" ]]; then
-    echo "  Grafana: https://localhost/grafana/"
-  else
-    echo "  Grafana: https://${N8N_HOST}/grafana/"
-  fi
 fi
 
+echo ""
+echo "  Grafana: http://localhost:3000 (bound to localhost only)"
+echo "    On a remote server, access via SSH tunnel:"
+echo "      ssh -L 3000:localhost:3000 <your-server>"
 echo "    user: admin"
 echo "    pass: ${GF_PASSWORD}"
 echo ""

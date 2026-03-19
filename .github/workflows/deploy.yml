@@ -1,0 +1,113 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment: GCP_SA_KEY
+
+    env:
+      VM_NAME: ${{ vars.VM_NAME || 'n8n-server' }}
+      GCP_ZONE: ${{ vars.GCP_ZONE || 'europe-west1-b' }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
+      GCP_MACHINE: ${{ vars.GCP_MACHINE || 'e2-small' }}
+      N8N_DOMAIN: ${{ vars.N8N_DOMAIN || '' }}
+      ACME_EMAIL: ${{ vars.ACME_EMAIL || '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check if VM exists
+        id: vm
+        run: |
+          if gcloud compute instances describe "$VM_NAME" \
+            --zone="$GCP_ZONE" --format="value(status)" 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --- First run: provision everything from scratch ---
+
+      - name: Provision infrastructure
+        if: steps.vm.outputs.exists == 'false'
+        run: |
+          chmod +x infra/provision-gcp.sh
+          ARGS="-z $GCP_ZONE -r $GCP_REGION -m $GCP_MACHINE -n $VM_NAME"
+          if [[ -n "$N8N_DOMAIN" && -n "$ACME_EMAIL" ]]; then
+            ARGS="$ARGS -d $N8N_DOMAIN -e $ACME_EMAIL"
+          fi
+          ./infra/provision-gcp.sh $ARGS
+
+      - name: Wait for bootstrap
+        if: steps.vm.outputs.exists == 'false'
+        timeout-minutes: 8
+        run: |
+          echo "Waiting for VM bootstrap to complete..."
+          for i in $(seq 1 40); do
+            if gcloud compute ssh "$VM_NAME" \
+              --zone="$GCP_ZONE" \
+              --tunnel-through-iap \
+              --command="grep -q 'Bootstrap complete' /var/log/n8n-bootstrap.log 2>/dev/null" \
+              --quiet 2>/dev/null; then
+              echo "Bootstrap complete."
+              exit 0
+            fi
+            echo "  Still bootstrapping... (attempt $i/40)"
+            sleep 12
+          done
+          echo "Bootstrap did not complete in time. Check VM logs."
+          exit 1
+
+      # --- Subsequent runs: pull and redeploy ---
+
+      - name: Deploy latest code
+        if: steps.vm.outputs.exists == 'true'
+        run: |
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$GCP_ZONE" \
+            --tunnel-through-iap \
+            --command="cd /opt/n8n && sudo git pull origin main && sudo docker compose up -d && sudo docker compose -f monitoring/docker-compose.yml up -d" \
+            --quiet
+
+      # --- Always: show final status ---
+
+      - name: Show status
+        if: always()
+        run: |
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$GCP_ZONE" \
+            --tunnel-through-iap \
+            --command="cd /opt/n8n && sudo docker compose ps && echo '---' && sudo docker compose -f monitoring/docker-compose.yml ps" \
+            --quiet 2>/dev/null || echo "VM not yet reachable (may still be bootstrapping)"
+
+      - name: Print access info
+        if: always()
+        run: |
+          EXTERNAL_IP=$(gcloud compute instances describe "$VM_NAME" \
+            --zone="$GCP_ZONE" \
+            --format='get(networkInterfaces[0].accessConfigs[0].natIP)' 2>/dev/null || echo "unknown")
+          echo ""
+          echo "========================================="
+          if [[ -n "$N8N_DOMAIN" ]]; then
+            echo "  n8n:     https://${N8N_DOMAIN}"
+          else
+            echo "  n8n:     https://${EXTERNAL_IP}"
+          fi
+          echo "  Grafana: SSH tunnel -> http://localhost:3000"
+          echo "    gcloud compute ssh ${VM_NAME} --zone=${GCP_ZONE} --tunnel-through-iap -- -L 3000:localhost:3000"
+          echo "========================================="
