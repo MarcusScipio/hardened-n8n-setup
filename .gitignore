@@ -1,3 +1,4 @@
 .env
 monitoring/.env
+docker-compose.override.yml
 n8n-lock.json

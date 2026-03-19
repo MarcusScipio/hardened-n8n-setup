@@ -41,8 +41,6 @@ case "$TLS_CHOICE" in
       exit 1
     fi
     TRAEFIK_RULE="Host(\`${N8N_HOST}\`)"
-    TRAEFIK_TLS="true"
-    TRAEFIK_CERTRESOLVER="letsencrypt"
     N8N_PROTOCOL="https"
     ;;
   2)
@@ -51,8 +49,6 @@ case "$TLS_CHOICE" in
     N8N_HOST="${N8N_HOST:-localhost}"
     ACME_EMAIL=""
     TRAEFIK_RULE="PathPrefix(\`/\`)"
-    TRAEFIK_TLS="true"
-    TRAEFIK_CERTRESOLVER=""
     N8N_PROTOCOL="https"
     ;;
   *)
@@ -95,11 +91,22 @@ N8N_PROTOCOL=${N8N_PROTOCOL}
 # --- TLS (${TLS_MODE}) ---
 ACME_EMAIL=${ACME_EMAIL}
 TRAEFIK_RULE=${TRAEFIK_RULE}
-TRAEFIK_TLS=${TRAEFIK_TLS}
-TRAEFIK_CERTRESOLVER=${TRAEFIK_CERTRESOLVER}
 EOF
 
 chmod 600 .env
+
+# --- Generate override for domain mode (certresolver) ---
+if [[ "$TLS_MODE" == "letsencrypt" ]]; then
+  cat > docker-compose.override.yml <<'OVERRIDE'
+services:
+  n8n:
+    labels:
+      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+OVERRIDE
+  echo "  Created docker-compose.override.yml (Let's Encrypt certresolver)"
+else
+  rm -f docker-compose.override.yml
+fi
 
 # --- Write monitoring .env ---
 
