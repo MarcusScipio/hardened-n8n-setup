@@ -1,0 +1,98 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Up",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{ "expr": "redis_up", "legendFormat": "Status" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "1": { "text": "UP", "color": "green" }, "0": { "text": "DOWN", "color": "red" } } }] } }
+    },
+    {
+      "title": "Memory Used",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{ "expr": "redis_memory_used_bytes", "legendFormat": "Used" }],
+      "fieldConfig": { "defaults": { "unit": "bytes", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 100000000 }, { "color": "red", "value": 120000000 }] } } }
+    },
+    {
+      "title": "Memory Usage %",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{ "expr": "redis_memory_used_bytes / redis_memory_max_bytes * 100", "legendFormat": "%" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 75 }, { "color": "red", "value": 90 }] } } }
+    },
+    {
+      "title": "Connected Clients",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [{ "expr": "redis_connected_clients", "legendFormat": "Clients" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 50 }] } } }
+    },
+    {
+      "title": "Hit Rate",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [{ "expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100", "legendFormat": "%" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 80 }, { "color": "green", "value": 95 }] } } }
+    },
+    {
+      "title": "Uptime",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [{ "expr": "redis_uptime_in_seconds", "legendFormat": "Uptime" }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "title": "Commands Per Second",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [{ "expr": "rate(redis_commands_processed_total[5m])", "legendFormat": "Commands/s" }],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 20, "lineWidth": 2 } } }
+    },
+    {
+      "title": "Memory Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "redis_memory_used_bytes", "legendFormat": "Used" },
+        { "expr": "redis_memory_max_bytes", "legendFormat": "Max (128MB)" },
+        { "expr": "redis_memory_used_rss_bytes", "legendFormat": "RSS" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "fillOpacity": 10, "lineWidth": 2 } } }
+    },
+    {
+      "title": "Keyspace Hits vs Misses",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "rate(redis_keyspace_hits_total[5m])", "legendFormat": "Hits/s" },
+        { "expr": "rate(redis_keyspace_misses_total[5m])", "legendFormat": "Misses/s" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 15, "lineWidth": 2 } } }
+    },
+    {
+      "title": "Network I/O",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "rate(redis_net_input_bytes_total[5m])", "legendFormat": "Input" },
+        { "expr": "rate(redis_net_output_bytes_total[5m])", "legendFormat": "Output" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "fillOpacity": 15, "lineWidth": 2 } } }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["redis", "cache"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Redis",
+  "uid": "redis-overview",
+  "version": 1
+}

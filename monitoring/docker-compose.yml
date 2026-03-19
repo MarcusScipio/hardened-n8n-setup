@@ -63,6 +63,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ../config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../config/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - "127.0.0.1:3000:3000"   # localhost only — access via SSH tunnel
     environment:

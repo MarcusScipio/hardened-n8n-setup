@@ -203,6 +203,9 @@ services:
       N8N_TEMPLATES_ENABLED: "true"
       N8N_METRICS: "true"
       N8N_METRICS_PREFIX: n8n_
+      N8N_METRICS_INCLUDE_QUEUE_METRICS: "true"
+      N8N_METRICS_INCLUDE_API_ENDPOINTS: "true"
+      N8N_METRICS_INCLUDE_MESSAGE_EVENT_BUS_METRICS: "true"
     depends_on:
       postgres:
         condition: service_healthy

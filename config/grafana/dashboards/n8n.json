@@ -1,0 +1,107 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Active Workflows",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{ "expr": "n8n_active_workflow_count", "legendFormat": "Active" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } } }
+    },
+    {
+      "title": "Executions (Total)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{ "expr": "sum(increase(n8n_workflow_execution_total[24h]))", "legendFormat": "24h" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "blue", "value": null }] } } }
+    },
+    {
+      "title": "Success Rate (24h)",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{ "expr": "sum(increase(n8n_workflow_execution_total{status=\"success\"}[24h])) / sum(increase(n8n_workflow_execution_total[24h])) * 100", "legendFormat": "%" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 90 }, { "color": "green", "value": 98 }] } } }
+    },
+    {
+      "title": "Queue: Active Jobs",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [{ "expr": "n8n_scaling_mode_queue_jobs_active", "legendFormat": "Active" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 50 }] } } }
+    },
+    {
+      "title": "Queue: Waiting Jobs",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [{ "expr": "n8n_scaling_mode_queue_jobs_waiting", "legendFormat": "Waiting" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 20 }, { "color": "red", "value": 100 }] } } }
+    },
+    {
+      "title": "Failed Executions (24h)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [{ "expr": "sum(increase(n8n_workflow_execution_total{status=\"error\"}[24h])) OR vector(0)", "legendFormat": "Errors" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 10 }] } } }
+    },
+    {
+      "title": "Workflow Executions Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "sum(rate(n8n_workflow_execution_total{status=\"success\"}[5m])) * 60", "legendFormat": "Success/min" },
+        { "expr": "sum(rate(n8n_workflow_execution_total{status=\"error\"}[5m])) * 60", "legendFormat": "Errors/min" },
+        { "expr": "sum(rate(n8n_workflow_execution_total{status=\"crashed\"}[5m])) * 60", "legendFormat": "Crashed/min" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 15, "lineWidth": 2 } } }
+    },
+    {
+      "title": "Queue Throughput",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "n8n_scaling_mode_queue_jobs_active", "legendFormat": "Active" },
+        { "expr": "n8n_scaling_mode_queue_jobs_waiting", "legendFormat": "Waiting" },
+        { "expr": "rate(n8n_scaling_mode_queue_jobs_completed[5m]) * 60", "legendFormat": "Completed/min" },
+        { "expr": "rate(n8n_scaling_mode_queue_jobs_failed[5m]) * 60", "legendFormat": "Failed/min" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10, "lineWidth": 2 } } }
+    },
+    {
+      "title": "n8n Process CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 12 },
+      "targets": [{ "expr": "rate(process_cpu_seconds_total{job=\"n8n\"}[5m]) * 100", "legendFormat": "CPU %" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "fillOpacity": 20 } } }
+    },
+    {
+      "title": "n8n Process Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 12 },
+      "targets": [
+        { "expr": "process_resident_memory_bytes{job=\"n8n\"}", "legendFormat": "RSS" },
+        { "expr": "process_heap_used_bytes{job=\"n8n\"}", "legendFormat": "Heap Used" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "fillOpacity": 15 } } }
+    },
+    {
+      "title": "n8n Event Loop Lag",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 12 },
+      "targets": [{ "expr": "nodejs_eventloop_lag_seconds{job=\"n8n\"}", "legendFormat": "Lag" }],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "fillOpacity": 15 } } }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["n8n"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "n8n Operations",
+  "uid": "n8n-operations",
+  "version": 1
+}

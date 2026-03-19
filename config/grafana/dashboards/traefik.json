@@ -1,0 +1,94 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Requests/min",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(rate(traefik_entrypoint_requests_total[5m])) * 60", "legendFormat": "req/min" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } } }
+    },
+    {
+      "title": "Error Rate (5xx)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{ "expr": "sum(rate(traefik_entrypoint_requests_total{code=~\"5..\"}[5m])) / sum(rate(traefik_entrypoint_requests_total[5m])) * 100 OR vector(0)", "legendFormat": "%" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] } } }
+    },
+    {
+      "title": "Avg Response Time",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{ "expr": "sum(rate(traefik_entrypoint_request_duration_seconds_sum[5m])) / sum(rate(traefik_entrypoint_request_duration_seconds_count[5m]))", "legendFormat": "Avg" }],
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 2 }] } } }
+    },
+    {
+      "title": "Open Connections",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum(traefik_entrypoint_open_connections)", "legendFormat": "Open" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 100 }] } } }
+    },
+    {
+      "title": "TLS Certs",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [{ "expr": "traefik_tls_certs_not_after - time()", "legendFormat": "Expires in" }],
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 604800 }, { "color": "green", "value": 2592000 }] } } }
+    },
+    {
+      "title": "4xx Errors/min",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [{ "expr": "sum(rate(traefik_entrypoint_requests_total{code=~\"4..\"}[5m])) * 60 OR vector(0)", "legendFormat": "4xx/min" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 50 }] } } }
+    },
+    {
+      "title": "Requests by Status Code",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "sum by (code) (rate(traefik_entrypoint_requests_total{entrypoint=\"websecure\"}[5m])) * 60", "legendFormat": "{{ code }}" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 15, "lineWidth": 2 } } }
+    },
+    {
+      "title": "Response Time (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(traefik_entrypoint_request_duration_seconds_bucket{entrypoint=\"websecure\"}[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(traefik_entrypoint_request_duration_seconds_bucket{entrypoint=\"websecure\"}[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(traefik_entrypoint_request_duration_seconds_bucket{entrypoint=\"websecure\"}[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "fillOpacity": 10, "lineWidth": 2 } } }
+    },
+    {
+      "title": "Requests by Service",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 12 },
+      "targets": [{ "expr": "sum by (service) (rate(traefik_service_requests_total[5m])) * 60", "legendFormat": "{{ service }}" }],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 20, "lineWidth": 2, "stacking": { "mode": "normal" } } } }
+    },
+    {
+      "title": "Open Connections by Entrypoint",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 12 },
+      "targets": [{ "expr": "traefik_entrypoint_open_connections", "legendFormat": "{{ entrypoint }} ({{ method }})" }],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 15, "lineWidth": 2 } } }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["traefik", "proxy"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Traefik",
+  "uid": "traefik-overview",
+  "version": 1
+}

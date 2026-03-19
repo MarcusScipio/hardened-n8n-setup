@@ -1,0 +1,99 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Active Connections",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{ "expr": "pg_stat_activity_count{datname=\"n8n\"}", "legendFormat": "Connections" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 80 }, { "color": "red", "value": 95 }] } } }
+    },
+    {
+      "title": "Database Size",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{ "expr": "pg_database_size_bytes{datname=\"n8n\"}", "legendFormat": "Size" }],
+      "fieldConfig": { "defaults": { "unit": "bytes", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5368709120 }] } } }
+    },
+    {
+      "title": "Cache Hit Ratio",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{ "expr": "pg_stat_database_blks_hit{datname=\"n8n\"} / (pg_stat_database_blks_hit{datname=\"n8n\"} + pg_stat_database_blks_read{datname=\"n8n\"}) * 100", "legendFormat": "%" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 90 }, { "color": "green", "value": 99 }] } } }
+    },
+    {
+      "title": "Up",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [{ "expr": "pg_up", "legendFormat": "Status" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "1": { "text": "UP", "color": "green" }, "0": { "text": "DOWN", "color": "red" } } }] } }
+    },
+    {
+      "title": "Dead Tuples",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [{ "expr": "sum(pg_stat_user_tables_n_dead_tup)", "legendFormat": "Dead Tuples" }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10000 }, { "color": "red", "value": 100000 }] } } }
+    },
+    {
+      "title": "Uptime",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [{ "expr": "time() - pg_postmaster_start_time_seconds", "legendFormat": "Uptime" }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "title": "Transactions Per Second",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "rate(pg_stat_database_xact_commit{datname=\"n8n\"}[5m])", "legendFormat": "Commits/s" },
+        { "expr": "rate(pg_stat_database_xact_rollback{datname=\"n8n\"}[5m])", "legendFormat": "Rollbacks/s" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 15, "lineWidth": 2 } } }
+    },
+    {
+      "title": "Rows Activity",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "sum(rate(pg_stat_database_tup_inserted{datname=\"n8n\"}[5m]))", "legendFormat": "Inserts/s" },
+        { "expr": "sum(rate(pg_stat_database_tup_updated{datname=\"n8n\"}[5m]))", "legendFormat": "Updates/s" },
+        { "expr": "sum(rate(pg_stat_database_tup_deleted{datname=\"n8n\"}[5m]))", "legendFormat": "Deletes/s" },
+        { "expr": "sum(rate(pg_stat_database_tup_fetched{datname=\"n8n\"}[5m]))", "legendFormat": "Fetches/s" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10, "lineWidth": 2 } } }
+    },
+    {
+      "title": "Connections by State",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 12 },
+      "targets": [{ "expr": "pg_stat_activity_count{datname=\"n8n\"}", "legendFormat": "{{ state }}" }],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 30, "lineWidth": 2, "stacking": { "mode": "normal" } } } }
+    },
+    {
+      "title": "Disk I/O (Blocks)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "rate(pg_stat_database_blks_hit{datname=\"n8n\"}[5m])", "legendFormat": "Cache Hits/s" },
+        { "expr": "rate(pg_stat_database_blks_read{datname=\"n8n\"}[5m])", "legendFormat": "Disk Reads/s" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 15, "lineWidth": 2 } } }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["postgres", "database"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "PostgreSQL",
+  "uid": "postgres-overview",
+  "version": 1
+}

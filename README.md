@@ -268,7 +268,14 @@ hardened-n8n-setup/
 |   |-- prometheus/
 |   |   +-- prometheus.yml                    Scrape targets
 |   +-- grafana/
+|       |-- dashboards/
+|       |   |-- n8n.json                      n8n operations dashboard
+|       |   |-- postgres.json                 PostgreSQL dashboard
+|       |   |-- redis.json                    Redis dashboard
+|       |   +-- traefik.json                  Traefik dashboard
 |       +-- provisioning/
+|           |-- dashboards/
+|           |   +-- dashboards.yml            Dashboard auto-provisioning config
 |           +-- datasources/
 |               +-- prometheus.yml            Auto-provisions Prometheus in Grafana
 |-- infra/
@@ -391,14 +398,16 @@ Grafana is accessible on `localhost:3000` only. On a remote server, use SSH tunn
 
 ### Grafana Dashboards
 
-Prometheus is auto-provisioned. Import these dashboard IDs for a quick start:
+Four dashboards are provisioned automatically and ready the moment Grafana starts. No manual import needed.
 
-- **PostgreSQL**: `9628`
-- **Redis**: `11835`
-- **Traefik**: `17346`
-- **n8n**: Check the [n8n docs](https://docs.n8n.io) for their official JSON
+| Dashboard | What it shows |
+|-----------|---------------|
+| **n8n Operations** | Active workflows, execution success/error rates, queue depth, Node.js process metrics |
+| **PostgreSQL** | Connections, transactions/s, cache hit ratio, dead tuples, row activity, disk I/O |
+| **Redis** | Memory usage vs cap, commands/s, hit/miss ratio, connected clients, network I/O |
+| **Traefik** | Requests/min, response time percentiles (p50/p95/p99), error rates, TLS cert expiry |
 
-Grafana UI > Dashboards > Import > paste the ID.
+Dashboards live in `config/grafana/dashboards/` as JSON files. Edit them there or through the Grafana UI (changes made in the UI persist across restarts via the Grafana data volume).
 
 ## Updating
 
