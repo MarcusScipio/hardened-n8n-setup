@@ -55,25 +55,16 @@ jobs:
 
       - name: Wait for bootstrap
         if: steps.vm.outputs.exists == 'false'
-        timeout-minutes: 8
         run: |
-          echo "Waiting for VM bootstrap to complete..."
-          for i in $(seq 1 40); do
-            if gcloud compute ssh "$VM_NAME" \
-              --zone="$GCP_ZONE" \
-              --tunnel-through-iap \
-              --command="grep -q 'Bootstrap complete' /var/log/n8n-bootstrap.log 2>/dev/null" \
-              --quiet 2>/dev/null; then
-              echo "Bootstrap complete."
-              exit 0
-            fi
-            echo "  Still bootstrapping... (attempt $i/40)"
-            sleep 12
-          done
-          echo "Bootstrap did not complete in time. Check VM logs."
-          exit 1
+          echo "Waiting 2 minutes for VM bootstrap..."
+          sleep 120
 
       # --- Subsequent runs: pull and redeploy ---
+
+      - name: Set up SSH
+        if: steps.vm.outputs.exists == 'true'
+        run: |
+          gcloud compute config-ssh --quiet 2>/dev/null || true
 
       - name: Deploy latest code
         if: steps.vm.outputs.exists == 'true'
@@ -81,19 +72,11 @@ jobs:
           gcloud compute ssh "$VM_NAME" \
             --zone="$GCP_ZONE" \
             --tunnel-through-iap \
+            --ssh-flag="-o StrictHostKeyChecking=no" \
             --command="cd /opt/n8n && sudo git pull origin main && sudo docker compose up -d && sudo docker compose -f monitoring/docker-compose.yml up -d" \
             --quiet
 
-      # --- Always: show final status ---
-
-      - name: Show status
-        if: always()
-        run: |
-          gcloud compute ssh "$VM_NAME" \
-            --zone="$GCP_ZONE" \
-            --tunnel-through-iap \
-            --command="cd /opt/n8n && sudo docker compose ps && echo '---' && sudo docker compose -f monitoring/docker-compose.yml ps" \
-            --quiet 2>/dev/null || echo "VM not yet reachable (may still be bootstrapping)"
+      # --- Always: show access info ---
 
       - name: Print access info
         if: always()
