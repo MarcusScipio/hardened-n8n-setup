@@ -12,7 +12,7 @@ jobs:
     environment: GCP_SA_KEY
 
     env:
-      VM_NAME: ${{ vars.VM_NAME || 'n8n-server-test' }}
+      VM_NAME: ${{ vars.VM_NAME || 'n8n-server' }}
       GCP_ZONE: ${{ vars.GCP_ZONE || 'europe-west1-b' }}
       GCP_REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
       GCP_MACHINE: ${{ vars.GCP_MACHINE || 'e2-small' }}
@@ -41,7 +41,7 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # --- First run: provision everything from scratch ---
+      # --- First run: provision infrastructure ---
 
       - name: Provision infrastructure
         if: steps.vm.outputs.exists == 'false'
@@ -56,18 +56,12 @@ jobs:
       - name: Wait for bootstrap
         if: steps.vm.outputs.exists == 'false'
         run: |
-          echo "Waiting 2 minutes for VM bootstrap..."
-          sleep 120
+          echo "Waiting 3 minutes for VM bootstrap..."
+          sleep 180
 
-      # --- Subsequent runs: pull and redeploy ---
-
-      - name: Set up SSH
-        if: steps.vm.outputs.exists == 'true'
-        run: |
-          gcloud compute config-ssh --quiet 2>/dev/null || true
+      # --- Always: deploy latest code ---
 
       - name: Deploy latest code
-        if: steps.vm.outputs.exists == 'true'
         run: |
           gcloud compute ssh "$VM_NAME" \
             --zone="$GCP_ZONE" \
@@ -76,7 +70,14 @@ jobs:
             --command="cd /opt/n8n && sudo git pull origin main && sudo docker compose up -d && sudo docker compose -f monitoring/docker-compose.yml up -d" \
             --quiet
 
-      # --- Always: show access info ---
+      - name: Show container status
+        run: |
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$GCP_ZONE" \
+            --tunnel-through-iap \
+            --ssh-flag="-o StrictHostKeyChecking=no" \
+            --command="cd /opt/n8n && sudo docker compose ps && echo '---' && sudo docker compose -f monitoring/docker-compose.yml ps" \
+            --quiet
 
       - name: Print access info
         if: always()
